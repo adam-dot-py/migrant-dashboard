@@ -6,4 +6,4 @@ duckdb_conn = duckdb.connect(
     read_only=True
 )
 
-print(duckdb_conn.sql("select * from latest.migrants_arrived_daily limit 1;"))
+print(duckdb_conn.sql("select * from latest.migrants_arrived_daily limit 2;"))
