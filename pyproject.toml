@@ -3,7 +3,7 @@ name = "migrant-dashboard"
 version = "0.1.0"
 description = "Contains UK Government statistical data for migrant crossings"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.9.2"
 dependencies = [
     "certifi>=2025.11.12",
     "duckdb>=1.4.3",
