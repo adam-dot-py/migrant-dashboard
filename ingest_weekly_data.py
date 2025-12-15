@@ -1,6 +1,8 @@
 import logging
 import duckdb
 import polars as pl
+import shutil
+import time
 from pathlib import Path
 from datetime import datetime
 from extract_data import fetch_migrant_data
@@ -11,16 +13,18 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+# setup duckdb
+con = duckdb.connect('migrant_crossings_db.duckdb')
+table_name = "raw.migrants_arrived_weekly"
+
 # setup paths
 p = Path()
+incoming_path = p / 'incoming'
 data_path = p / 'data'
 
 # fetch latest data
 fetch_migrant_data()
-
-# setup duckdb
-con = duckdb.connect('migrant_crossings_db.duckdb')
-table_name = "raw.migrants_arrived_weekly"
+time.sleep(3)
 
 schema_overrides = {
     'Week ending': pl.Date(),
@@ -39,20 +43,30 @@ schema = [
     'boats_arrived_involved_in_uncontrolled_landings',
     'migrants_prevented',
     'events_prevented',
-    'notes'
+    'notes',
+    'source'
 ]
 
 all_data = []
-for f in data_path.glob('*.ods'):
+for f in incoming_path.glob('*.ods'):
     _df = pl.read_ods(
         source=f,
         schema_overrides=schema_overrides,
         sheet_name='SB_02'
     )
+    _df = _df.with_columns(
+        pl.lit(f.name).alias('source')
+    )
     all_data.append(_df)
+    source_dir = incoming_path / f.name
+    target_dir = data_path / f.name
+    shutil.move(source_dir, target_dir)
 
 # create the polars dataframe
 df = pl.concat(all_data)
+
+# apply the expected table schema for column names
+df.columns = schema
 
 # sort by date descending (latest first)
 df = df.sort(by=pl.col('week_ending'), descending=True)
@@ -98,6 +112,7 @@ try:
         migrants_prevented,
         events_prevented,
         notes,
+        source,
         is_current,
         begin_date,
         end_date
@@ -110,6 +125,7 @@ try:
         source.migrants_prevented,
         source.events_prevented,
         source.notes,
+        source.source,
         source.is_current,
         source.begin_date,
         source.end_date

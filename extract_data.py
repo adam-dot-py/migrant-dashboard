@@ -29,7 +29,7 @@ def fetch_migrant_data():
               download_resp = requests.get(href)
               download_resp.raise_for_status()
               download_file_name = href.split("/")[-1]
-              output_dir = f"data/{download_file_name}"
+              output_dir = f"incoming/{download_file_name}"
               with open(output_dir, 'wb') as fp:
                   fp.write(download_resp.content)
               logging.info(f"Downloaded -> {download_file_name}")

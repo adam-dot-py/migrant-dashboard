@@ -1,11 +1,11 @@
 import logging
+import ssl
+import certifi
 import duckdb
 import polars as pl
-import shutil
-import time
+import pandas as pd
 from pathlib import Path
 from datetime import datetime
-from extract_data import fetch_migrant_data
 
 # setup logging
 logging.basicConfig(
@@ -15,61 +15,52 @@ logging.basicConfig(
 
 # setup duckdb
 con = duckdb.connect('migrant_crossings_db.duckdb')
-table_name = "raw.migrants_arrived_daily"
+table_name = "raw.migrants_arrived_7_days"
 
 # setup paths
 p = Path()
 incoming_path = p / 'incoming'
 data_path = p / 'data'
 
-# fetch latest data
-fetch_migrant_data()
-time.sleep(3)
+# sort ssl issues
+ssl_context = ssl.create_default_context(cafile=certifi.where())
+ssl._create_default_https_context = lambda: ssl_context
 
 schema_overrides = {
-    'Date': pl.Date(),
+    'Date': pl.String(),
     'Migrants arrived': pl.Int16(),
     'Boats arrived': pl.Int16(),
-    'Boats arrived - involved in uncontrolled landings': pl.Int16(),
+    'Boats involved in uncontrolled landings': pl.Int16(),
     'Notes': pl.String()
 }
 
 schema = [
-    'day_ending',
+    'date',
     'migrants_arrived',
     'boats_arrived',
     'boats_arrived_involved_in_uncontrolled_landings',
-    'notes',
-    'source'
+    'notes'
 ]
 
-all_data = []
-for f in incoming_path.glob('*.ods'):
-    _df = pl.read_ods(
-        source=f,
-        schema_overrides=schema_overrides,
-        sheet_name='SB_01'
-    )
-    _df = _df.with_columns(
-        pl.lit(f.name).alias('source')
-    )
-    all_data.append(_df)
-    source_dir = incoming_path / f.name
-    target_dir = data_path / f.name
-    shutil.move(source_dir, target_dir)
-
-# create the polars dataframe
-df = pl.concat(all_data)
+# extract data
+gov_web_page = "https://www.gov.uk/government/publications/migrants-detected-crossing-the-english-channel-in-small-boats/migrants-detected-crossing-the-english-channel-in-small-boats-last-7-days"
+df = pl.from_pandas(
+    data=pd.read_html(gov_web_page)[0],
+    schema_overrides=schema_overrides
+)
 
 # apply the expected table schema for column names
 df.columns = schema
 
-# sort by date descending (latest first)
-df = df.sort(by=pl.col('day_ending'), descending=True)
+# convert the date
+df = df.with_columns(
+    pl.col('date').str.strptime(pl.Date,'%d %B %Y').alias('date')
+)
 
 # add sdc flags for upsert and merging
 current_date = datetime.now().date()
 df = df.with_columns(
+    pl.lit(f"{current_date}-update").alias('source'),
     pl.lit(True).alias('is_current'),
     pl.lit(current_date).alias('begin_date').cast(pl.Date()),
     pl.lit(None).alias('end_date').cast(pl.Date())
@@ -84,7 +75,7 @@ try:
     con.sql(f"""
     MERGE into {table_name} AS target
     USING polarsDF AS source
-    ON target.day_ending = source.day_ending
+    ON target.date = source.date
     AND target.is_current = true
     WHEN MATCHED AND (
            target.migrants_arrived <> source.migrants_arrived OR
@@ -99,7 +90,7 @@ try:
         is_current  = false
     WHEN NOT MATCHED BY TARGET THEN INSERT (
         record_id,
-        day_ending,
+        date,
         migrants_arrived,
         boats_arrived,
         boats_arrived_involved_in_uncontrolled_landings,
@@ -110,7 +101,7 @@ try:
         end_date
     ) VALUES (
         nextval('duck_record_sequence'),
-        source.day_ending,
+        source.date,
         source.migrants_arrived,
         source.boats_arrived,
         source.boats_arrived_involved_in_uncontrolled_landings,
@@ -123,7 +114,6 @@ try:
     """)
     logging.info(f"Updated -> {table_name}")
 except Exception as e:
-    con.close()
     logging.critical(f"Something went wrong -> {e}")
 
 con.close()
