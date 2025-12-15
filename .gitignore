@@ -14,4 +14,4 @@ wheels/
 # Other files
 ducklake_syntax.txt
 /.python-version
-/.DS_store
+.DS_store
