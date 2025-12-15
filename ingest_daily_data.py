@@ -38,12 +38,18 @@ schema = [
     'notes'
 ]
 
+all_data = []
 for f in data_path.glob('*.ods'):
-    df = pl.read_ods(
+    _df = pl.read_ods(
         source=f,
         schema_overrides=schema_overrides,
         sheet_name='SB_01'
     )
+    all_data.append(_df)
+
+# create the polars dataframe
+df = pl.concat(all_data)
+
 # apply the expected table schema for column names
 df.columns = schema
 
