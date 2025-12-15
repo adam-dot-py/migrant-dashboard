@@ -1,0 +1,17 @@
+# Python-generated files
+__pycache__/
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+#Pycharm
+.idea
+
+# Other files
+ducklake_syntax.txt
+/.python-version
+/.DS_store
