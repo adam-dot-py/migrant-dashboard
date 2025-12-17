@@ -7,124 +7,135 @@ from pathlib import Path
 from datetime import datetime
 from extract_data import fetch_migrant_data
 
-# setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+def extract_daily_data():
+    """
+    _docstring
+    :return:
+    """
 
-# setup duckdb
-con = duckdb.connect('migrant_crossings_db.duckdb')
-table_name = "raw.migrants_arrived_daily"
-
-# setup paths
-p = Path()
-incoming_path = p / 'incoming'
-data_path = p / 'data'
-
-# fetch latest data
-fetch_migrant_data()
-time.sleep(3)
-
-schema_overrides = {
-    'Date': pl.Date(),
-    'Migrants arrived': pl.Int16(),
-    'Boats arrived': pl.Int16(),
-    'Boats arrived - involved in uncontrolled landings': pl.Int16(),
-    'Notes': pl.String()
-}
-
-schema = [
-    'day_ending',
-    'migrants_arrived',
-    'boats_arrived',
-    'boats_arrived_involved_in_uncontrolled_landings',
-    'notes',
-    'source'
-]
-
-all_data = []
-for f in incoming_path.glob('*.ods'):
-    _df = pl.read_ods(
-        source=f,
-        schema_overrides=schema_overrides,
-        sheet_name='SB_01'
+    # setup logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    _df = _df.with_columns(
-        pl.lit(f.name).alias('source')
+
+    logging.info(f"Running {extract_daily_data.__name__}")
+
+    # setup duckdb
+    con = duckdb.connect('migrant_crossings_db.duckdb')
+    table_name = "raw.migrants_arrived_daily"
+
+    # setup paths
+    p = Path()
+    incoming_path = p / 'incoming'
+    data_path = p / 'data'
+
+    # fetch latest data
+    fetch_migrant_data()
+    time.sleep(3)
+
+    schema_overrides = {
+        'Date': pl.Date(),
+        'Migrants arrived': pl.Int16(),
+        'Boats arrived': pl.Int16(),
+        'Boats arrived - involved in uncontrolled landings': pl.Int16(),
+        'Notes': pl.String()
+    }
+
+    schema = [
+        'date_ending',
+        'migrants_arrived',
+        'boats_arrived',
+        'boats_arrived_involved_in_uncontrolled_landings',
+        'notes',
+        'source'
+    ]
+
+    all_data = []
+    for f in incoming_path.glob('*.ods'):
+        _df = pl.read_ods(
+            source=f,
+            schema_overrides=schema_overrides,
+            sheet_name='SB_01'
+        )
+        _df = _df.with_columns(
+            pl.lit(f.name).alias('source')
+        )
+        all_data.append(_df)
+        source_dir = incoming_path / f.name
+        target_dir = data_path / f.name
+        shutil.move(source_dir, target_dir)
+
+    # create the polars dataframe
+    df = pl.concat(all_data)
+
+    # apply the expected table schema for column names
+    df.columns = schema
+
+    # sort by date descending (latest first)
+    df = df.sort(by=pl.col('date_ending'), descending=True)
+
+    # add sdc flags for upsert and merging
+    current_date = datetime.now().date()
+    df = df.with_columns(
+        pl.lit(True).alias('is_current'),
+        pl.lit(current_date).alias('begin_date').cast(pl.Date()),
+        pl.lit(None).alias('end_date').cast(pl.Date())
     )
-    all_data.append(_df)
-    source_dir = incoming_path / f.name
-    target_dir = data_path / f.name
-    shutil.move(source_dir, target_dir)
 
-# create the polars dataframe
-df = pl.concat(all_data)
+    # register the df for ingestion into the database
+    con.register('polarsDF', df)
 
-# apply the expected table schema for column names
-df.columns = schema
+    # upsert and merge
+    try:
+        logging.info("Attempting merge...")
+        con.sql(f"""
+        MERGE into {table_name} AS target
+        USING polarsDF AS source
+        ON target.date_ending = source.date_ending
+        AND target.is_current = true
+        WHEN MATCHED AND (
+               target.migrants_arrived <> source.migrants_arrived OR
+               target.boats_arrived    <> source.boats_arrived    OR
+               target.boats_arrived_involved_in_uncontrolled_landings  <> source.boats_arrived_involved_in_uncontrolled_landings OR
+               target.notes <> source.notes
+            ) THEN UPDATE SET
+            end_date    = CURRENT_DATE - INTERVAL '1 day',
+            is_current  = false
+        WHEN NOT MATCHED BY SOURCE AND target.is_current = true THEN UPDATE SET
+            end_date    = CURRENT_DATE - INTERVAL '1 day',
+            is_current  = false
+        WHEN NOT MATCHED BY TARGET THEN INSERT (
+            record_id,
+            date_ending,
+            migrants_arrived,
+            boats_arrived,
+            boats_arrived_involved_in_uncontrolled_landings,
+            notes,
+            source,
+            is_current,
+            begin_date,
+            end_date
+        ) VALUES (
+            nextval('duck_record_sequence'),
+            source.date_ending,
+            source.migrants_arrived,
+            source.boats_arrived,
+            source.boats_arrived_involved_in_uncontrolled_landings,
+            source.notes,
+            source.source,
+            source.is_current,
+            source.begin_date,
+            source.end_date
+        )
+        """)
+        logging.info(f"Updated -> {table_name}")
+    except Exception as e:
+        con.close()
+        logging.critical(f"Something went wrong -> {e}")
 
-# sort by date descending (latest first)
-df = df.sort(by=pl.col('day_ending'), descending=True)
-
-# add sdc flags for upsert and merging
-current_date = datetime.now().date()
-df = df.with_columns(
-    pl.lit(True).alias('is_current'),
-    pl.lit(current_date).alias('begin_date').cast(pl.Date()),
-    pl.lit(None).alias('end_date').cast(pl.Date())
-)
-
-# register the df for ingestion into the database
-con.register('polarsDF', df)
-
-# upsert and merge
-try:
-    logging.info("Attempting merge...")
-    con.sql(f"""
-    MERGE into {table_name} AS target
-    USING polarsDF AS source
-    ON target.day_ending = source.day_ending
-    AND target.is_current = true
-    WHEN MATCHED AND (
-           target.migrants_arrived <> source.migrants_arrived OR
-           target.boats_arrived    <> source.boats_arrived    OR
-           target.boats_arrived_involved_in_uncontrolled_landings  <> source.boats_arrived_involved_in_uncontrolled_landings OR
-           target.notes <> source.notes
-        ) THEN UPDATE SET
-        end_date    = CURRENT_DATE - INTERVAL '1 day',
-        is_current  = false
-    WHEN NOT MATCHED BY SOURCE AND target.is_current = true THEN UPDATE SET
-        end_date    = CURRENT_DATE - INTERVAL '1 day',
-        is_current  = false
-    WHEN NOT MATCHED BY TARGET THEN INSERT (
-        record_id,
-        day_ending,
-        migrants_arrived,
-        boats_arrived,
-        boats_arrived_involved_in_uncontrolled_landings,
-        notes,
-        source,
-        is_current,
-        begin_date,
-        end_date
-    ) VALUES (
-        nextval('duck_record_sequence'),
-        source.day_ending,
-        source.migrants_arrived,
-        source.boats_arrived,
-        source.boats_arrived_involved_in_uncontrolled_landings,
-        source.notes,
-        source.source,
-        source.is_current,
-        source.begin_date,
-        source.end_date
-    )
-    """)
-    logging.info(f"Updated -> {table_name}")
-except Exception as e:
     con.close()
-    logging.critical(f"Something went wrong -> {e}")
+    logging.info("Connection to duckdb closed")
 
-con.close()
-logging.info("Connection to duckdb closed")
+if __name__ == "__main__":
+    extract_daily_data()

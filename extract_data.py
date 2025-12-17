@@ -10,6 +10,10 @@ logging.basicConfig(
 
 # function to fetch data
 def fetch_migrant_data():
+    """
+    _docstring
+    :return:
+    """
 
     url = "https://www.gov.uk/government/publications/migrants-detected-crossing-the-english-channel-in-small-boats"
     download_text = "Migrants detected crossing the English Channel in small boats – time series"

@@ -1,7 +1,7 @@
 CREATE OR replace VIEW latest.migrants_arrived_7_days AS (
        SELECT
          record_id,
-         date,
+         date_ending,
          migrants_arrived,
          boats_arrived,
          boats_arrived_involved_in_uncontrolled_landings,
@@ -32,7 +32,7 @@ CREATE OR replace VIEW latest.migrants_arrived_weekly AS (
 CREATE OR REPLACE VIEW latest.migrants_arrived_daily as (
        select
          record_id,
-         day_ending,
+         date_ending,
          migrants_arrived,
          boats_arrived,
          boats_arrived_involved_in_uncontrolled_landings,
@@ -40,5 +40,5 @@ CREATE OR REPLACE VIEW latest.migrants_arrived_daily as (
          source
        FROM raw.migrants_arrived_daily
        WHERE is_current = TRUE
-       ORDER BY day_ending DESC
+       ORDER BY date_ending DESC
 );
