@@ -10,6 +10,7 @@ from datetime import datetime
 def extract_seven_day_data():
     """
     Extracts the latest snapshot UK Government daily statistical data for the last 7 days
+    relating to migrant crossings.
 
     Args:
         None
