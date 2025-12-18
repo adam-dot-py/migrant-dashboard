@@ -1,6 +1,6 @@
 # Migrant Crossings
 
-:point_right: Check out the [Migrant Crossing dashboard]('https://uk-migrant-crossings.streamlit.app) here!
+:point_right: Check out the [Migrant Crossing dashboard](https://uk-migrant-crossings.streamlit.app) here!
 
 ## About
 
