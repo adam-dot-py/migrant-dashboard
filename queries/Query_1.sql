@@ -1,0 +1,1 @@
+select * from latest.migrants_arrived_daily
