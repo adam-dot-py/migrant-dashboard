@@ -1,7 +1,7 @@
 # DLT (Data Load Tool) Cheat Sheet
 
 > **dlt** is an open-source Python library that lets you build, run, and maintain data pipelines
-> without writing boilerplate. It handles schema inference, data normalisation, incremental loading,
+> without writing boilerplate. It handles schema inference, data normalization, incremental loading,
 > and destination management so you can focus on your data instead of your infrastructure.
 
 ---
@@ -30,7 +30,7 @@
 
 | Concept | Description |
 |---|---|
-| **Pipeline** | A named end-to-end flow: source → normalise → destination |
+| **Pipeline** | A named end-to-end flow: source → normalize → destination |
 | **Source** | A decorated Python function (or class) that yields data |
 | **Resource** | A single stream of data within a source (e.g. one API endpoint) |
 | **Destination** | Where data lands (DuckDB, BigQuery, Snowflake, Databricks, …) |
@@ -42,7 +42,7 @@
 
 ```
 Source (yield data)
-  → Normaliser (infer types, flatten nested JSON)
+  → Normalizer (infer types, flatten nested JSON)
     → Load (write to destination using the write disposition)
 ```
 
